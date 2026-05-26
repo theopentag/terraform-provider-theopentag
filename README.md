@@ -1,21 +1,21 @@
 # terraform-provider-theopentag
 
-Terraform provider for [SQL](https://github.com/theopentag) — a web dashboard and REST API for PostgreSQL backup management.
+Terraform provider for the [Opentag](https://github.com/theopentag) platform — a web dashboard and REST API for managing cloud infrastructure components including PostgreSQL backup management (SQL module) and platform identity & access control (IAM module).
 
-Manage PostgreSQL servers in SQL, configure backup policies, schedules, and API keys as code. Read live status, backup lists, job history, and PostgreSQL metadata as data sources.
+Manage servers, backup policies, schedules, API keys, and platform users as code. Read live status, backup lists, job history, PostgreSQL metadata, and service discovery as data sources.
 
 ```hcl
 terraform {
   required_providers {
     theopentag = {
       source  = "theopentag/theopentag"
-      version = ">=0.0.6"
+      version = ">=0.0.3"
     }
   }
 }
 
 provider "theopentag" {
-  host    = "https://sql.example.com"
+  host    = "https://platform.example.com"
   api_key = "bmk_your_api_key_here"
 }
 ```
@@ -26,45 +26,47 @@ provider "theopentag" {
 
 - Terraform >= 1.0
 - Go 1.22+ (to build from source)
-- A running SQL instance with an API key (`admin` or `user` role)
+- A running Opentag platform instance with an API key (`admin` or `user` role)
 
 ---
 
 ## Authentication
 
-All requests require a Bearer API key. Generate one in the SQL UI under **API Keys**.
+All requests require a Bearer API key. Generate one in the platform UI under **API Keys**.
 
-**Provider arguments:**
-
-| Argument              | Env var          | Description                          |
-|-----------------------|------------------|--------------------------------------|
-| `host`                | `PLATFORM_API_HOST`    | SQL API base URL                     |
-| `api_key` (sensitive) | `PLATFORM_API_KEY` | API key (`bmk_...`)                  |
-| `insecure_skip_verify`| —                | Skip TLS verification (dev only)     |
+| Argument               | Env var              | Description                          |
+|------------------------|----------------------|--------------------------------------|
+| `host`                 | `PLATFORM_API_HOST`  | Platform API base URL                |
+| `api_key` (sensitive)  | `PLATFORM_API_KEY`   | API key (`bmk_...`)                  |
+| `insecure_skip_verify` | —                    | Skip TLS verification (dev only)     |
 
 Using environment variables is recommended in CI:
 
 ```bash
-export PLATFORM_API_HOST="https://sql.example.com"
+export PLATFORM_API_HOST="https://platform.example.com"
 export PLATFORM_API_KEY="bmk_your_api_key_here"
 terraform apply
 ```
 
 **Role requirements per operation:**
 
-| Role     | What it can do                                                                |
-|----------|-------------------------------------------------------------------------------|
-| `viewer` | Read status, backups, schedules, jobs, stats, pg metadata                     |
-| `user`   | viewer + trigger backups, create/update server configs and schedules          |
-| `admin`  | user + manage API keys, users, delete server configs, view audit logs         |
+| Role     | What it can do                                                                          |
+|----------|-----------------------------------------------------------------------------------------|
+| `viewer` | Read status, backups, schedules, jobs, stats, pg metadata, service discovery            |
+| `user`   | viewer + trigger backups, create/update server configs, schedules, SQL API keys         |
+| `admin`  | user + manage platform users, platform API keys, delete server configs, audit logs      |
 
 ---
 
-## Resources
+## Modules
 
-### `theopentag_sql_server_config`
+### SQL Module — PostgreSQL backup management
 
-Registers a PostgreSQL server with SQL and configures its backup settings.
+#### Resources
+
+##### `theopentag_sql_server_config`
+
+Registers a PostgreSQL server with the SQL module and configures its backup settings.
 
 ```hcl
 resource "theopentag_sql_server_config" "primary" {
@@ -87,70 +89,50 @@ resource "theopentag_sql_server_config" "primary" {
 }
 ```
 
-**Key attributes:**
-
-| Attribute                      | Required | Description                                              |
-|-------------------------------|----------|----------------------------------------------------------|
-| `name`                        | yes      | Server name `[a-zA-Z0-9_-]`. Immutable (forces replace) |
-| `conninfo`                    | yes      | libpq connection string (may include `password=`)        |
-| `backup_method`               | no       | `postgres` (default) or `rsync`                         |
-| `pg_version`                  | no       | PostgreSQL major version 14–18 (default: 17)             |
-| `streaming_archiver`          | no       | Enable streaming WAL archiver (default: true)            |
-| `create_slot`                 | no       | `auto` or `manual` (default: auto)                       |
-| `retention_policy`            | no       | e.g. `RECOVERY WINDOW OF 14 DAYS`                        |
-| `backups_enabled`             | no       | Pause/resume backup execution (default: true)            |
-| `schedule_enabled`            | no       | Enable the auto-created daily schedule (create only)     |
+| Attribute                      | Required | Description                                               |
+|-------------------------------|----------|-----------------------------------------------------------|
+| `name`                        | yes      | Server name `[a-zA-Z0-9_-]`. Immutable (forces replace)  |
+| `conninfo`                    | yes      | libpq connection string (may include `password=`)         |
+| `backup_method`               | no       | `postgres` (default) or `rsync`                          |
+| `pg_version`                  | no       | PostgreSQL major version 14–18                            |
+| `streaming_archiver`          | no       | Enable streaming WAL archiver                             |
+| `create_slot`                 | no       | `auto` or `manual`                                        |
+| `retention_policy`            | no       | e.g. `RECOVERY WINDOW OF 14 DAYS`                         |
+| `backups_enabled`             | no       | Pause/resume backup execution                             |
+| `schedule_enabled`            | no       | Enable auto-created daily schedule (create only)          |
 
 Import: `terraform import theopentag_sql_server_config.primary primary-pg17`
 
 ---
 
-### `theopentag_sql_schedule`
+##### `theopentag_sql_schedule`
 
 Manages a backup schedule for a SQL-managed PostgreSQL server. All times are UTC.
 
 ```hcl
-# Daily at 02:30 UTC
 resource "theopentag_sql_schedule" "nightly" {
   server_name   = theopentag_sql_server_config.primary.name
   label         = "Nightly backup"
   schedule_type = "daily"
-  schedule_config = {
-    time = "02:30"
-  }
+  schedule_config = { time = "02:00" }
   enabled = true
 }
 
-# Weekly — Mon + Wed at 03:00 UTC
 resource "theopentag_sql_schedule" "weekdays" {
   server_name   = theopentag_sql_server_config.primary.name
   label         = "Mid-week backup"
   schedule_type = "weekly"
   schedule_config = {
     time = "03:00"
-    days = [1, 3]  # 0=Sun … 6=Sat
+    days = [1, 3]   # 0=Sun … 6=Sat
   }
   enabled = true
 }
 
-# Monthly on the 1st at 01:00 UTC
 resource "theopentag_sql_schedule" "monthly" {
   server_name   = theopentag_sql_server_config.primary.name
   schedule_type = "monthly"
-  schedule_config = {
-    time = "01:00"
-    day  = 1
-  }
-  enabled = true
-}
-
-# One-time
-resource "theopentag_sql_schedule" "adhoc" {
-  server_name   = theopentag_sql_server_config.primary.name
-  schedule_type = "once"
-  schedule_config = {
-    run_at = "2025-12-01T02:00:00"
-  }
+  schedule_config = { time = "01:00", day = 1 }
   enabled = true
 }
 ```
@@ -159,19 +141,14 @@ Import: `terraform import theopentag_sql_schedule.nightly 42`
 
 ---
 
-### `theopentag_sql_api_key`
+##### `theopentag_sql_api_key`
 
-Manages a SQL API key. The full `bmk_...` value is returned only on creation and stored as a sensitive value in state. It cannot be retrieved again from the API.
+Manages a SQL-scoped API key. The full `bmk_...` value is returned only on creation and stored as a sensitive value in state — it cannot be retrieved again from the API.
 
 ```hcl
 resource "theopentag_sql_api_key" "ci" {
   name = "ci-pipeline"
   role = "user"
-}
-
-resource "theopentag_sql_api_key" "monitoring" {
-  name = "prometheus"
-  role = "viewer"
 }
 
 output "ci_key" {
@@ -182,191 +159,133 @@ output "ci_key" {
 
 Both `name` and `role` are immutable — any change forces a new key.
 
-Import: `terraform import theopentag_sql_api_key.ci 7`  
-Note: `key` will be `null` after import (the full key is never re-exposed by the API).
+Import: `terraform import theopentag_sql_api_key.ci 7`
+Note: `key` will be `null` after import (never re-exposed by the API).
 
 ---
 
-## Data Sources
+#### Data Sources
 
-### `theopentag_sql_server_status`
+| Data source                        | Description                                            |
+|------------------------------------|--------------------------------------------------------|
+| `theopentag_sql_server_status`     | Live health and check results for a server             |
+| `theopentag_sql_backups`           | All backups for a server, most recent first            |
+| `theopentag_sql_jobs`              | Command queue jobs (filter by server, status, limit)   |
+| `theopentag_sql_servers`           | All servers with live status summary                   |
+| `theopentag_sql_server_configs`    | All server configurations (read-only list)             |
+| `theopentag_sql_stats`             | Aggregate backup count and disk usage                  |
+| `theopentag_sql_host_stats`        | Latest CPU/RAM/disk snapshot from the backend host     |
+| `theopentag_sql_ssh_key`           | SQL's Ed25519 SSH public key for remote restores       |
+| `theopentag_sql_pg_databases`      | PostgreSQL databases on a managed server               |
+| `theopentag_sql_pg_users`          | PostgreSQL roles on a managed server                   |
+| `theopentag_sql_users`             | All SQL API users (admin role required)                |
 
-Live health and check results for a server. Refreshed by the worker every `STATUS_POLL_INTERVAL` seconds (default 30s).
+---
+
+### IAM Module — Platform identity & access control
+
+#### Resources
+
+##### `theopentag_iam_user`
+
+Manages a platform user. Controls access to all modules via role assignment.
 
 ```hcl
-data "theopentag_sql_server_status" "primary" {
-  server_name = "primary-pg17"
-}
-
-output "healthy" {
-  value = data.theopentag_sql_server_status.primary.check_ok
-}
-
-output "backup_storage" {
-  value = data.theopentag_sql_server_status.primary.fields["Backup storage"]
+resource "theopentag_iam_user" "alice" {
+  email = "alice@example.com"
+  name  = "Alice"
+  role  = "user"
 }
 ```
 
-**Attributes:** `ok`, `check_ok`, `check_items` (list of `{check, status, hint}`), `fields` (map of all SQL status fields), `replication_json`
+| Attribute    | Required | Description                                         |
+|-------------|----------|-----------------------------------------------------|
+| `email`     | yes      | User email. Immutable (forces replace)              |
+| `name`      | no       | Display name                                        |
+| `role`      | yes      | Platform role: `admin`, `user`, or `viewer`         |
+| `last_login`| computed | Timestamp of last login (ISO UTC)                   |
+| `created_at`| computed | Creation timestamp (ISO UTC)                        |
+
+Import: `terraform import theopentag_iam_user.alice alice@example.com`
 
 ---
 
-### `theopentag_sql_backups`
+##### `theopentag_iam_api_key`
 
-All backups for a server, most recent first. Refreshed every 30s by the worker.
-
-```hcl
-data "theopentag_sql_backups" "primary" {
-  server_name = "primary-pg17"
-}
-
-output "done_backups" {
-  value = [for b in data.theopentag_sql_backups.primary.backups : b.backup_id if b.status == "DONE"]
-}
-```
-
-Each backup: `backup_id`, `status` (`DONE`/`FAILED`/`STARTED`/`WAITING_FOR_WALS`/`DONE_WITH_ERRORS`/`EMPTY`), `size`, `begin_time`, `end_time`, `backup_type`, `source` (`manual`/`scheduler`)
-
----
-
-### `theopentag_sql_jobs`
-
-Command queue jobs. Filter by server, status, and limit.
+Manages a platform-level API key. Scopes restrict the key to specific modules. The full key is returned only on creation.
 
 ```hcl
-data "theopentag_sql_jobs" "recent_failures" {
-  server = "primary-pg17"
-  status = "failed"
-  limit  = 10
+resource "theopentag_iam_api_key" "ci" {
+  name   = "ci-pipeline"
+  role   = "user"
+  scopes = ["sql"]
 }
-```
 
-Each job: `id`, `args_json`, `status`, `exit_code`, `stdout`, `stderr`, `queued_at`, `started_at`, `completed_at`, `schedule_id`, `pg_version`
+resource "theopentag_iam_api_key" "ops" {
+  name   = "ops-automation"
+  role   = "admin"
+  scopes = ["sql", "iam"]
+}
 
----
-
-### `theopentag_sql_servers`
-
-All servers with live status summary.
-
-```hcl
-data "theopentag_sql_servers" "all" {}
-
-output "unhealthy" {
-  value = [for s in data.theopentag_sql_servers.all.servers : s.name if !s.check_ok]
+output "ci_key" {
+  value     = theopentag_iam_api_key.ci.key
+  sensitive = true
 }
 ```
 
-Each server: `name`, `description`, `active`, `backup_count`, `last_backup`, `disk_usage`, `disk_bytes`, `retention_policy`, `check_ok`, `redundancy_ok`, `redundancy_raw`, `has_active_backup`
+| Attribute     | Required | Description                                                   |
+|--------------|----------|---------------------------------------------------------------|
+| `name`       | yes      | Human-readable name. Immutable (forces replace)               |
+| `role`       | yes      | Role: `admin`, `user`, or `viewer`. Immutable (forces replace)|
+| `scopes`     | no       | Module scopes: `["sql"]`, `["sql", "iam"]`, etc. Empty = all modules. Immutable (forces replace) |
+| `key`        | computed | Full key value (`bmk_...`). Sensitive, set on creation only   |
+| `key_prefix` | computed | First 12 characters for display                               |
+| `created_by` | computed | Identity that created this key                                |
+| `created_at` | computed | Creation timestamp (ISO UTC)                                  |
+
+Import: `terraform import theopentag_iam_api_key.ci 5`
+Note: `key` will be `null` after import.
 
 ---
 
-### `theopentag_sql_server_configs`
+#### Data Sources
 
-All server configurations (read-only list). Useful for iterating without managing configs.
+##### `theopentag_iam_users`
 
-```hcl
-data "theopentag_sql_server_configs" "all" {}
-
-output "pg17_servers" {
-  value = [for c in data.theopentag_sql_server_configs.all.server_configs : c.name if c.pg_version == 17]
-}
-```
-
----
-
-### `theopentag_sql_stats`
-
-Aggregate backup count and backup filesystem disk usage.
+Lists all platform users (admin role required).
 
 ```hcl
-data "theopentag_sql_stats" "summary" {}
-
-output "total_backups" { value = data.theopentag_sql_stats.summary.total_backups }
-output "disk_free_gb"  { value = data.theopentag_sql_stats.summary.barman_disk_free / 1073741824 }
-```
-
-**Attributes:** `total_backups`, `total_disk` (human-readable), `barman_disk_total` (backup filesystem total bytes), `barman_disk_free` (backup filesystem free bytes)
-
----
-
-### `theopentag_sql_host_stats`
-
-Latest CPU/RAM/disk snapshot from the backend host (collected every 15s). Returns an error if no data has been collected yet.
-
-```hcl
-data "theopentag_sql_host_stats" "backend" {}
-```
-
-**Attributes:** `cpu_percent`, `ram_total`, `ram_used`, `ram_percent`, `disk_total`, `disk_used`, `disk_percent`, `timestamp`
-
-Note: `disk_total`/`disk_used` reflect the backend container's root filesystem, not the backup data disk. Use `theopentag_sql_stats` for backup storage metrics.
-
----
-
-### `theopentag_sql_ssh_key`
-
-SQL's Ed25519 SSH public key for remote restore operations. Add it to `~/.ssh/authorized_keys` on any server SQL needs to restore to.
-
-```hcl
-data "theopentag_sql_ssh_key" "sql" {}
-
-output "sql_public_key" {
-  value = data.theopentag_sql_ssh_key.sql.public_key
-}
-```
-
----
-
-### `theopentag_sql_pg_databases`
-
-Snapshot of PostgreSQL databases on a managed server. Refreshed every 30s.
-
-```hcl
-data "theopentag_sql_pg_databases" "primary" {
-  server_name = "primary-pg17"
-}
-
-output "db_sizes" {
-  value = { for db in data.theopentag_sql_pg_databases.primary.databases : db.database_name => db.size_bytes }
-}
-```
-
-Each database: `database_name`, `owner`, `encoding`, `collation`, `size_bytes`, `connection_limit`, `is_template`, `allows_connections`
-
----
-
-### `theopentag_sql_pg_users`
-
-Snapshot of PostgreSQL roles on a managed server. Refreshed every 60s.
-
-```hcl
-data "theopentag_sql_pg_users" "primary" {
-  server_name = "primary-pg17"
-}
-
-output "superusers" {
-  value = [for u in data.theopentag_sql_pg_users.primary.users : u.username if u.is_superuser]
-}
-```
-
-Each user: `username`, `is_superuser`, `can_create_roles`, `can_create_db`, `can_login`, `is_replication_user`, `password_valid_until`, `member_of_groups`
-
----
-
-### `theopentag_sql_users`
-
-All SQL API users (admin role required).
-
-```hcl
-data "theopentag_sql_users" "all" {}
+data "theopentag_iam_users" "all" {}
 
 output "admins" {
-  value = [for u in data.theopentag_sql_users.all.users : u.email if u.role == "admin"]
+  value = [for u in data.theopentag_iam_users.all.users : u.email if u.role == "admin"]
 }
 ```
 
-Each user: `email`, `name`, `picture`, `role`, `last_login`, `created_at`
+##### `theopentag_iam_api_keys`
+
+Lists all platform API keys. Full key values are never returned.
+
+```hcl
+data "theopentag_iam_api_keys" "all" {}
+```
+
+##### `theopentag_iam_service_discovery`
+
+Reads registered service endpoints from the platform's Service Discovery. Returns live status and API base URLs for all registered modules.
+
+```hcl
+data "theopentag_iam_service_discovery" "platform" {}
+
+output "sql_endpoint" {
+  value = one([
+    for s in data.theopentag_iam_service_discovery.platform.services
+    : s.endpoint if s.name == "sql"
+  ])
+}
+```
+
+Each service: `name`, `endpoint`, `status` (`healthy`/`degraded`/`unhealthy`), `version`
 
 ---
 
@@ -377,16 +296,17 @@ terraform {
   required_providers {
     theopentag = {
       source  = "theopentag/theopentag"
-      version = ">=0.0.6"
+      version = ">=0.0.3"
     }
   }
 }
 
 provider "theopentag" {
-  host    = "https://sql.example.com"
-  api_key = "bmk_your_api_key_here"
+  host    = "https://platform.example.com"
+  api_key = var.platform_api_key
 }
 
+# SQL — register a PostgreSQL server and configure backups
 resource "theopentag_sql_server_config" "primary" {
   name               = "primary-pg17"
   conninfo           = "host=db.example.com port=5432 user=barman password=secret dbname=postgres"
@@ -410,48 +330,55 @@ resource "theopentag_sql_schedule" "nightly" {
   enabled = true
 }
 
-resource "theopentag_sql_api_key" "ci" {
-  name = "ci-pipeline"
-  role = "user"
+# IAM — provision a service account user and scoped API key
+resource "theopentag_iam_user" "ops" {
+  email = "ops-bot@example.com"
+  name  = "Ops Bot"
+  role  = "user"
+}
+
+resource "theopentag_iam_api_key" "ci" {
+  name   = "ci-pipeline"
+  role   = "user"
+  scopes = ["sql"]
 }
 
 data "theopentag_sql_server_status" "primary" {
   server_name = theopentag_sql_server_config.primary.name
 }
 
-data "theopentag_sql_ssh_key" "sql" {}
-
-output "server_ok"       { value = data.theopentag_sql_server_status.primary.check_ok }
-output "sql_public_key"  { value = data.theopentag_sql_ssh_key.sql.public_key }
-output "ci_key"          { value = theopentag_sql_api_key.ci.key; sensitive = true }
+output "server_ok"  { value = data.theopentag_sql_server_status.primary.check_ok }
+output "ci_api_key" { value = theopentag_iam_api_key.ci.key; sensitive = true }
 ```
 
 ---
 
 ## Development
 
-### Build and install locally
+### Build and run locally
 
 ```bash
 # Build
 make build
 
-# Install to ~/.terraform.d/plugins (version 0.0.1)
+# Install to ~/.terraform.d/plugins/
 make install
 ```
 
-Add a `dev_overrides` block to `~/.terraformrc` so Terraform uses the local binary:
+Add a `dev_overrides` block to `~/.terraformrc` to use the local binary without `terraform init`:
 
 ```hcl
 provider_installation {
   dev_overrides {
-    "registry.terraform.io/theopentag/theopentag" = "/Users/<you>/.terraform.d/plugins/registry.terraform.io/theopentag/theopentag/0.0.1/<os>_<arch>"
+    "theopentag/theopentag" = "/path/to/opentag-cloud/terraform"
   }
   direct {}
 }
 ```
 
-### Build and vet
+Then run `terraform plan` / `terraform apply` directly (skip `terraform init`).
+
+### Verify
 
 ```bash
 go build ./...
@@ -461,11 +388,11 @@ go test ./...
 
 ### Release
 
-Releases are tagged semver pushes. GoReleaser builds cross-platform binaries and signs checksums. See [PUBLISHING.md](PUBLISHING.md) for the full registry publish workflow.
+Tag a semver version — GoReleaser builds and signs cross-platform binaries automatically via GitHub Actions:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The GitHub Actions workflow at `.github/workflows/release.yml` runs GoReleaser automatically on tag push.
+See [PUBLISHING.md](PUBLISHING.md) for the full registry publish workflow.
