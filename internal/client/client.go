@@ -134,6 +134,7 @@ func (c *Client) CreateServerConfig(ctx context.Context, req ServerConfigCreateR
 }
 
 func (c *Client) UpdateServerConfig(ctx context.Context, name string, req ServerConfig) (*ServerConfig, error) {
+	req.Name = name
 	data, _, err := c.do(ctx, http.MethodPut, "/api/sql/server-configs/"+name, req)
 	if err != nil {
 		return nil, err
@@ -617,4 +618,166 @@ func (c *Client) ListUsers(ctx context.Context) ([]User, error) {
 		return nil, fmt.Errorf("decode users: %w", err)
 	}
 	return users, nil
+}
+
+// IAMUser is a platform user managed by the IAM module.
+type IAMUser struct {
+	Email     string  `json:"email"`
+	Name      string  `json:"name"`
+	Role      string  `json:"role"`
+	LastLogin *string `json:"last_login"`
+	CreatedAt string  `json:"created_at"`
+}
+
+type IAMUserCreateRequest struct {
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
+}
+
+type IAMUserUpdateRequest struct {
+	Name *string `json:"name,omitempty"`
+	Role *string `json:"role,omitempty"`
+}
+
+func (c *Client) CreateIAMUser(ctx context.Context, req IAMUserCreateRequest) (*IAMUser, error) {
+	data, _, err := c.do(ctx, http.MethodPost, "/api/iam/users", req)
+	if err != nil {
+		return nil, err
+	}
+	var u IAMUser
+	if err := json.Unmarshal(data, &u); err != nil {
+		return nil, fmt.Errorf("decode iam user: %w", err)
+	}
+	return &u, nil
+}
+
+func (c *Client) GetIAMUser(ctx context.Context, email string) (*IAMUser, error) {
+	data, status, err := c.do(ctx, http.MethodGet, "/api/iam/users/"+email, nil)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var u IAMUser
+	if err := json.Unmarshal(data, &u); err != nil {
+		return nil, fmt.Errorf("decode iam user: %w", err)
+	}
+	return &u, nil
+}
+
+func (c *Client) UpdateIAMUser(ctx context.Context, email string, req IAMUserUpdateRequest) (*IAMUser, error) {
+	data, _, err := c.do(ctx, http.MethodPatch, "/api/iam/users/"+email, req)
+	if err != nil {
+		return nil, err
+	}
+	var u IAMUser
+	if err := json.Unmarshal(data, &u); err != nil {
+		return nil, fmt.Errorf("decode iam user: %w", err)
+	}
+	return &u, nil
+}
+
+func (c *Client) DeleteIAMUser(ctx context.Context, email string) error {
+	_, status, err := c.do(ctx, http.MethodDelete, "/api/iam/users/"+email, nil)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+func (c *Client) ListIAMUsers(ctx context.Context) ([]IAMUser, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/iam/users", nil)
+	if err != nil {
+		return nil, err
+	}
+	var users []IAMUser
+	if err := json.Unmarshal(data, &users); err != nil {
+		return nil, fmt.Errorf("decode iam users: %w", err)
+	}
+	return users, nil
+}
+
+// IAMAPIKey is a platform-level API key managed by the IAM module.
+type IAMAPIKey struct {
+	ID         int64    `json:"id"`
+	Name       string   `json:"name"`
+	Role       string   `json:"role"`
+	Scopes     []string `json:"scopes"`
+	KeyPrefix  string   `json:"key_prefix"`
+	CreatedBy  string   `json:"created_by"`
+	LastUsedAt *string  `json:"last_used_at"`
+	CreatedAt  string   `json:"created_at"`
+	Key        *string  `json:"key,omitempty"`
+}
+
+type IAMAPIKeyCreateRequest struct {
+	Name   string   `json:"name"`
+	Role   string   `json:"role"`
+	Scopes []string `json:"scopes"`
+}
+
+func (c *Client) CreateIAMAPIKey(ctx context.Context, req IAMAPIKeyCreateRequest) (*IAMAPIKey, error) {
+	data, _, err := c.do(ctx, http.MethodPost, "/api/iam/api-keys", req)
+	if err != nil {
+		return nil, err
+	}
+	var k IAMAPIKey
+	if err := json.Unmarshal(data, &k); err != nil {
+		return nil, fmt.Errorf("decode iam api key: %w", err)
+	}
+	return &k, nil
+}
+
+func (c *Client) ListIAMAPIKeys(ctx context.Context) ([]IAMAPIKey, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/iam/api-keys", nil)
+	if err != nil {
+		return nil, err
+	}
+	var keys []IAMAPIKey
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return nil, fmt.Errorf("decode iam api keys: %w", err)
+	}
+	return keys, nil
+}
+
+func (c *Client) DeleteIAMAPIKey(ctx context.Context, id int64) error {
+	_, status, err := c.do(ctx, http.MethodDelete, "/api/iam/api-keys/"+strconv.FormatInt(id, 10), nil)
+	if err != nil {
+		if status == http.StatusNotFound {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// IAMServiceEndpoint is one registered service from the platform Service Discovery.
+type IAMServiceEndpoint struct {
+	Name     string `json:"name"`
+	Endpoint string `json:"endpoint"`
+	Status   string `json:"status"`
+	Version  string `json:"version"`
+}
+
+// IAMServiceDiscovery is returned by GET /api/iam/service-discovery.
+type IAMServiceDiscovery struct {
+	Services  []IAMServiceEndpoint `json:"services"`
+	UpdatedAt *string              `json:"updated_at"`
+}
+
+func (c *Client) GetIAMServiceDiscovery(ctx context.Context) (*IAMServiceDiscovery, error) {
+	data, _, err := c.do(ctx, http.MethodGet, "/api/iam/service-discovery", nil)
+	if err != nil {
+		return nil, err
+	}
+	var sd IAMServiceDiscovery
+	if err := json.Unmarshal(data, &sd); err != nil {
+		return nil, fmt.Errorf("decode iam service discovery: %w", err)
+	}
+	return &sd, nil
 }

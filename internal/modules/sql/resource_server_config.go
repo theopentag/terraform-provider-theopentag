@@ -296,7 +296,9 @@ func (r *serverConfigResource) Update(ctx context.Context, req resource.UpdateRe
 		return
 	}
 
-	sc, err := r.client.UpdateServerConfig(ctx, plan.Name.ValueString(), modelToServerConfig(plan))
+	body := modelToServerConfig(plan)
+	body.Name = plan.Name.ValueString()
+	sc, err := r.client.UpdateServerConfig(ctx, plan.Name.ValueString(), body)
 	if err != nil {
 		resp.Diagnostics.AddError("Error updating server config", err.Error())
 		return

@@ -23,8 +23,8 @@ terraform {
 }
 
 provider "theopentag" {
-  host    = "https://sql.example.com"
-  api_key = var.sql_api_key
+  host    = "https://platform.example.com"
+  api_key = var.platform_api_key
 }
 ```
 
@@ -36,7 +36,7 @@ All API calls require a Bearer token. Generate one in the SQL UI under **API Key
 
 ### Optional
 
-- `host` (String) — Base URL of the SQL API (e.g. `https://sql.example.com`). Can also be set via the `PLATFORM_API_HOST` environment variable.
+- `host` (String) — Base URL of the SQL API (e.g. `https://platform.example.com`). Can also be set via the `PLATFORM_API_HOST` environment variable.
 - `api_key` (String, Sensitive) — API key (`bmk_...`). Can also be set via the `PLATFORM_API_KEY` environment variable.
 - `insecure_skip_verify` (Boolean) — Skip TLS certificate verification. Not recommended in production.
 

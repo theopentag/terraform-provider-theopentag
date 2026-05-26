@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/theopentag/terraform-provider-theopentag/internal/client"
+	iammod "github.com/theopentag/terraform-provider-theopentag/internal/modules/iam"
 	sqlmod "github.com/theopentag/terraform-provider-theopentag/internal/modules/sql"
 )
 
@@ -89,15 +90,15 @@ func (p *sqlProvider) Configure(ctx context.Context, req provider.ConfigureReque
 func (p *sqlProvider) Resources(_ context.Context) []func() resource.Resource {
 	var out []func() resource.Resource
 	out = append(out, sqlmod.Resources()...)
+	out = append(out, iammod.Resources()...)
 	// out = append(out, computemod.Resources()...)  // future: compute module
-	// out = append(out, iammod.Resources()...)       // future: iam module
 	return out
 }
 
 func (p *sqlProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	var out []func() datasource.DataSource
 	out = append(out, sqlmod.DataSources()...)
+	out = append(out, iammod.DataSources()...)
 	// out = append(out, computemod.DataSources()...)  // future: compute module
-	// out = append(out, iammod.DataSources()...)       // future: iam module
 	return out
 }
