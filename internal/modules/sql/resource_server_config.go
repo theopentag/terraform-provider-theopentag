@@ -314,7 +314,11 @@ func (r *serverConfigResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	newState := serverConfigToModel(sc)
-	newState.ScheduleEnabled = state.ScheduleEnabled
+	if !plan.ScheduleEnabled.IsUnknown() {
+		newState.ScheduleEnabled = plan.ScheduleEnabled
+	} else {
+		newState.ScheduleEnabled = state.ScheduleEnabled
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, newState)...)
 }
 
