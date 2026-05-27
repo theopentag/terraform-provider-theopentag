@@ -53,10 +53,12 @@ release:
   extra_files:
     - glob: 'terraform-registry-manifest.json'
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
-  ids:
-    - none
   # If you want to manually examine the release before its live, uncomment this line:
-  #draft: false
+  draft: false
 
 changelog:
   disable: true
+
+terraforms:
+  - border_group: theopentag
+    name: theopentag
