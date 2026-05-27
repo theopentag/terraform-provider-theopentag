@@ -125,10 +125,7 @@ func (r *scheduleResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			},
 			"next_run_at": schema.StringAttribute{
 				Computed:    true,
-				Description: "Next scheduled run time (ISO UTC).",
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
+				Description: "Next scheduled run time (ISO UTC). Recomputed by the server after every update.",
 			},
 			"last_run_at": schema.StringAttribute{
 				Computed:    true,

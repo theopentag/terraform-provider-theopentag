@@ -1,19 +1,6 @@
 # CLAUDE.md — terraform-provider-theopentag
 
-Terraform provider for the Opentag platform. Multi-module architecture: **sql** is implemented; **compute** and **iam** are planned. Keep this file as the single source of truth — update it when architecture or naming changes.
-
----
-
-## Quick commands
-
-```bash
-go build ./...                          # compile
-go vet ./...                            # static analysis
-make build                              # produces ./terraform-provider-theopentag
-make install                            # local install into ~/.terraform.d/plugins/
-make test                               # go test ./...
-make lint                               # golangci-lint
-```
+Terraform provider for the Opentag platform. This file is the authoritative reference for AI-assisted development. Update it when architecture, bugs, or patterns change.
 
 ---
 
@@ -22,168 +9,315 @@ make lint                               # golangci-lint
 | Key | Value |
 |---|---|
 | Go module | `github.com/theopentag/terraform-provider-theopentag` |
-| Registry address | `registry.terraform.io/theopentag/theopentag` |
+| Registry | `registry.terraform.io/theopentag/theopentag` |
 | Provider TypeName | `theopentag` |
 | GitHub repo | `https://github.com/theopentag/terraform-provider-theopentag` |
-| Framework | HashiCorp Plugin Framework v1.13.0, Go 1.22+ |
+| Framework | `github.com/hashicorp/terraform-plugin-framework` v1.13.0 |
+| Go version | 1.22+ |
 
 ---
 
-## Provider configuration
+## Module status
 
-```hcl
-terraform {
-  required_providers {
-    theopentag = {
-      source  = "theopentag/theopentag"
-      version = ">=0.0.1"
-    }
-  }
-}
+| Module | Package | Status |
+|---|---|---|
+| sql | `internal/modules/sql` | ✅ implemented |
+| iam | `internal/modules/iam` | ✅ implemented |
+| compute | `internal/modules/compute` | 🔲 planned |
 
-provider "theopentag" {
-  host    = "https://platform.example.com"   # or PLATFORM_API_HOST env var
-  api_key = "bmk_..."                        # or PLATFORM_API_KEY env var
-  # insecure_skip_verify = false
-}
+Both sql and iam are registered in `provider.go`. The compute lines are commented out.
+
+---
+
+## Commands
+
+```bash
+make build     # produces ./terraform-provider-theopentag
+make install   # copies binary to ~/.terraform.d/plugins/registry.terraform.io/theopentag/theopentag/0.0.1/darwin_arm64/
+go build ./... # compile check
+go vet ./...   # static analysis
+go test ./...  # tests
 ```
-
-Environment variables (preferred in CI):
-- `PLATFORM_API_HOST` — base URL of the platform API
-- `PLATFORM_API_KEY` — API key (`bmk_...` prefix)
 
 ---
 
 ## Directory structure
 
 ```
-terraform/
-  main.go                          # providerserver.Serve entry point
-  go.mod / go.sum
-  GNUmakefile
-  internal/
-    provider/
-      provider.go                  # provider Metadata, Schema, Configure, Resources, DataSources
-    client/
-      client.go                    # shared HTTP client (all modules share one instance)
-    modules/
-      sql/
-        register.go                # exports Resources() and DataSources() for the sql module
-        resource_server_config.go
-        resource_schedule.go
-        resource_api_key.go
-        datasource_backups.go
-        datasource_host_stats.go
-        datasource_jobs.go
-        datasource_pg_databases.go
-        datasource_pg_users.go
-        datasource_server_configs.go
-        datasource_server_status.go
-        datasource_servers.go
-        datasource_ssh_key.go
-        datasource_stats.go
-        datasource_users.go
-  examples/
-    main.tf                        # complete usage example
-  docs/
-    index.md                       # provider-level docs
-    resources/                     # per-resource docs
-    data-sources/                  # per-data-source docs
+main.go                               # var version string + providerserver.Serve
+GNUmakefile
+.goreleaser.yml                       # GoReleaser v2, formats:["zip"], signs checksum only
+.github/workflows/release.yml        # triggers on v* tag push, goreleaser-action@v6 version:"~> v2"
+internal/
+  provider/provider.go               # ONLY file to edit when adding a new module
+  client/client.go                   # ONLY file to edit when adding API methods; shared by all modules
+  modules/
+    sql/
+      register.go                    # ONLY file to edit when adding sql resource/datasource
+      resource_server_config.go
+      resource_schedule.go
+      resource_api_key.go
+      datasource_*.go                # 11 datasources
+    iam/
+      register.go                    # ONLY file to edit when adding iam resource/datasource
+      resource_user.go
+      resource_api_key.go
+      datasource_users.go
+      datasource_api_keys.go
+      datasource_service_discovery.go
+docs/
+  index.md                           # provider-level docs (both modules)
+  resources/                         # one .md per resource
+  data-sources/                      # one .md per datasource
+examples/main.tf
 ```
 
 ---
 
-## Naming convention
+## Naming rules
 
-Terraform splits resource type names at the **first underscore** to find the provider local name.
-
-- Provider TypeName: `"theopentag"` → local name `theopentag`
-- Module prefix: `_sql_` for sql module, `_compute_` for compute (future), `_iam_` for iam (future)
-- Full pattern: `theopentag_<module>_<type>`
-
-**Never use all-hyphens** (`theopentag-sql-server-config`) — Terraform cannot split on `_` and looks up a non-existent provider.
+- Pattern: `theopentag_<module>_<type>` — the first `_` is how Terraform finds the provider local name
+- Never use hyphens: `theopentag-sql-...` breaks provider resolution
+- TypeName set in `Metadata()`: `resp.TypeName = req.ProviderTypeName + "_sql_server_config"`
+- Module prefix: `_sql_`, `_iam_`, `_compute_` (future)
 
 ---
 
-## Resources and data sources
+## All resources and data sources
 
-### sql module (`internal/modules/sql/`, package `sql`)
+### sql module
 
-| HCL type | Go file | TypeName suffix |
+| HCL name | File | Import key |
 |---|---|---|
-| `resource "theopentag_sql_server_config"` | `resource_server_config.go` | `"_sql_server_config"` |
-| `resource "theopentag_sql_schedule"` | `resource_schedule.go` | `"_sql_schedule"` |
-| `resource "theopentag_sql_api_key"` | `resource_api_key.go` | `"_sql_api_key"` |
-| `data "theopentag_sql_server_status"` | `datasource_server_status.go` | `"_sql_server_status"` |
-| `data "theopentag_sql_backups"` | `datasource_backups.go` | `"_sql_backups"` |
-| `data "theopentag_sql_jobs"` | `datasource_jobs.go` | `"_sql_jobs"` |
-| `data "theopentag_sql_servers"` | `datasource_servers.go` | `"_sql_servers"` |
-| `data "theopentag_sql_server_configs"` | `datasource_server_configs.go` | `"_sql_server_configs"` |
-| `data "theopentag_sql_stats"` | `datasource_stats.go` | `"_sql_stats"` |
-| `data "theopentag_sql_host_stats"` | `datasource_host_stats.go` | `"_sql_host_stats"` |
-| `data "theopentag_sql_ssh_key"` | `datasource_ssh_key.go` | `"_sql_ssh_key"` |
-| `data "theopentag_sql_pg_databases"` | `datasource_pg_databases.go` | `"_sql_pg_databases"` |
-| `data "theopentag_sql_pg_users"` | `datasource_pg_users.go` | `"_sql_pg_users"` |
-| `data "theopentag_sql_users"` | `datasource_users.go` | `"_sql_users"` |
+| `theopentag_sql_server_config` | `resource_server_config.go` | server name (string) |
+| `theopentag_sql_schedule` | `resource_schedule.go` | integer ID |
+| `theopentag_sql_api_key` | `resource_api_key.go` | integer ID |
+| `data.theopentag_sql_server_status` | `datasource_server_status.go` | — |
+| `data.theopentag_sql_backups` | `datasource_backups.go` | — |
+| `data.theopentag_sql_jobs` | `datasource_jobs.go` | — |
+| `data.theopentag_sql_servers` | `datasource_servers.go` | — |
+| `data.theopentag_sql_server_configs` | `datasource_server_configs.go` | — |
+| `data.theopentag_sql_stats` | `datasource_stats.go` | — |
+| `data.theopentag_sql_host_stats` | `datasource_host_stats.go` | — |
+| `data.theopentag_sql_ssh_key` | `datasource_ssh_key.go` | — |
+| `data.theopentag_sql_pg_databases` | `datasource_pg_databases.go` | — |
+| `data.theopentag_sql_pg_users` | `datasource_pg_users.go` | — |
+| `data.theopentag_sql_users` | `datasource_users.go` | — |
 
-All support `terraform import`. Resources: import by name or integer ID. Data sources: read-only.
+### iam module
+
+| HCL name | File | Import key |
+|---|---|---|
+| `theopentag_iam_user` | `resource_user.go` | email (string) |
+| `theopentag_iam_api_key` | `resource_api_key.go` | integer ID |
+| `data.theopentag_iam_users` | `datasource_users.go` | — |
+| `data.theopentag_iam_api_keys` | `datasource_api_keys.go` | — |
+| `data.theopentag_iam_service_discovery` | `datasource_service_discovery.go` | — |
 
 ---
 
-## How provider aggregation works
+## HTTP client patterns
 
-`provider.go` → `Resources()` / `DataSources()` collect slices from each module's `register.go`:
+`client.go` contains all API structs and methods. Rules:
+- One `*client.Client` shared by all modules — never create per-module clients
+- Each resource/datasource receives it via `Configure()`: `req.ProviderData.(*client.Client)`
+- For PUT/PATCH requests that require a field in the body, always set it explicitly inside the client method, do not rely on the caller
 
 ```go
-// provider.go
-out = append(out, sqlmod.Resources()...)
-// out = append(out, computemod.Resources()...)  // future: compute module
-// out = append(out, iammod.Resources()...)       // future: iam module
+// CORRECT: always enforce name in the body inside the client method
+func (c *Client) UpdateServerConfig(ctx context.Context, name string, req ServerConfig) (*ServerConfig, error) {
+    req.Name = name  // belt-and-suspenders: ensures name is always in the JSON body
+    data, _, err := c.do(ctx, http.MethodPut, "/api/sql/server-configs/"+name, req)
+    ...
+}
 ```
 
-`register.go` (per module) exports two functions only:
+- Use `json:"field,omitempty"` only on truly optional fields. Required body fields must NOT have omitempty.
+
+---
+
+## Computed field rules — critical
+
+These rules prevent "Provider produced inconsistent result after apply" errors.
+
+### When to use `UseStateForUnknown()`
+Use on fields that are server-assigned on create and **never change** after that (IDs, created_at, key prefixes, slot names).
 
 ```go
-func Resources() []func() resource.Resource { ... }
-func DataSources() []func() datasource.DataSource { ... }
+// CORRECT: ID never changes after create
+"id": schema.StringAttribute{
+    Computed: true,
+    PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+},
 ```
 
----
-
-## Adding a new module (e.g. compute)
-
-1. Create `internal/modules/compute/` with `package compute`
-2. Add `register.go` exporting `Resources()` and `DataSources()`
-3. Each resource/datasource uses `req.ProviderTypeName + "_compute_<type>"` as its TypeName
-4. In `provider.go`, import as `computemod` and uncomment the two `append` lines
-5. Add docs under `docs/resources/` and `docs/data-sources/`
-
----
-
-## HTTP client
-
-`internal/client/client.go` — shared across all modules. Injected via `Configure`:
+### When NOT to use `UseStateForUnknown()`
+Do NOT use on fields the server recomputes after every update. If you do, Terraform plans the prior state value, but the API returns a new value → inconsistency error.
 
 ```go
-c := client.New(host, apiKey, insecure)
-resp.DataSourceData = c   // available to all datasources via Configure
-resp.ResourceData = c     // available to all resources via Configure
+// WRONG: next_run_at changes when schedule config changes
+"next_run_at": schema.StringAttribute{
+    Computed: true,
+    PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}, // BUG
+},
+
+// CORRECT: let it be (known after apply) on updates
+"next_run_at": schema.StringAttribute{
+    Computed: true,
+    // no PlanModifiers
+},
 ```
 
-Each resource/datasource asserts `req.ProviderData.(*client.Client)` in its own `Configure` method.
+Fields without `UseStateForUnknown()` in this codebase (intentional):
+- `theopentag_sql_server_config`: none currently flagged
+- `theopentag_sql_schedule`: `next_run_at` — recomputed by server on every schedule change
+
+### Write-only / create-only fields
+Fields consumed only on Create (not tracked server-side) need special Update handling — use plan value, not state value:
+
+```go
+// resource_server_config.go Update():
+// schedule_enabled is only sent on Create; server never returns it.
+// Use plan value when known, fall back to state when unknown.
+if !plan.ScheduleEnabled.IsUnknown() {
+    newState.ScheduleEnabled = plan.ScheduleEnabled
+} else {
+    newState.ScheduleEnabled = state.ScheduleEnabled
+}
+```
 
 ---
 
-## Critical constraints
+## Adding a new resource (checklist)
 
-1. **TypeName must contain exactly one `_` before the resource suffix.** Terraform uses the first `_` to find the provider local name. Pattern: `theopentag_<module>_<type>`.
+1. Create `internal/modules/<module>/resource_<type>.go`
+   - `var _ resource.Resource = &<type>Resource{}`
+   - `var _ resource.ResourceWithImportState = &<type>Resource{}` (if importable)
+   - `Metadata()`: `resp.TypeName = req.ProviderTypeName + "_<module>_<type>"`
+   - `Configure()`: assert `req.ProviderData.(*client.Client)`
+   - Apply computed field rules above
+2. Add constructor to `internal/modules/<module>/register.go`
+3. Add API method(s) to `internal/client/client.go`
+4. Add `docs/resources/<module>_<type>.md`
+5. Update `docs/index.md` table
+6. Update `README.md` table
+7. Run `go build ./... && go vet ./...`
 
-2. **`register.go` is the only file to edit when adding a resource/datasource to a module.** The individual files are self-contained.
+## Adding a new data source (checklist)
 
-3. **`provider.go` is the only file to edit when adding a new module.** It imports each module package and appends its slices.
+Same as above but:
+- `var _ datasource.DataSource = &<type>DataSource{}`
+- Only implement `Read()`, no Create/Update/Delete
+- Add to `docs/data-sources/<module>_<type>.md`
+- All attributes are `Computed: true`
 
-4. **All imports use** `github.com/theopentag/terraform-provider-theopentag/internal/...` — never the old `terraform-provider-sql` path.
+## Adding a new module (checklist)
 
-5. **The client is shared.** All modules talk to the same platform API via one `*client.Client`. Do not create per-module clients.
+1. `internal/modules/<module>/` with `package <module>`
+2. `register.go` exporting `Resources() []func() resource.Resource` and `DataSources() []func() datasource.DataSource`
+3. In `provider.go`: add import alias `<module>mod` and two `append` lines
+4. Add API structs/methods to `client.go`
+5. Update `docs/index.md`, `README.md` with new module section
 
-6. **No sensitive values in code or docs.** API keys, passwords, and connection strings in examples must use placeholder values only (e.g. `"bmk_..."`, `"password=secret"`).
+---
+
+## API endpoint map
+
+| Client method | HTTP | Path |
+|---|---|---|
+| `GetServerConfig` | GET | `/api/sql/server-configs/:name` |
+| `CreateServerConfig` | POST | `/api/sql/server-configs` |
+| `UpdateServerConfig` | PUT | `/api/sql/server-configs/:name` |
+| `SetBackupsEnabled` | PATCH | `/api/sql/server-configs/:name/backups-enabled` |
+| `DeleteServerConfig` | DELETE | `/api/sql/server-configs/:name` |
+| `GetSchedule` | GET | `/api/sql/schedules/:id` |
+| `CreateSchedule` | POST | `/api/sql/schedules` |
+| `UpdateSchedule` | PUT | `/api/sql/schedules/:id` |
+| `DeleteSchedule` | DELETE | `/api/sql/schedules/:id` |
+| `ListAPIKeys` | GET | `/api/sql/api-keys` |
+| `CreateAPIKey` | POST | `/api/sql/api-keys` |
+| `DeleteAPIKey` | DELETE | `/api/sql/api-keys/:id` |
+| `CreateIAMUser` | POST | `/api/iam/users` |
+| `GetIAMUser` | GET | `/api/iam/users/:email` |
+| `UpdateIAMUser` | PATCH | `/api/iam/users/:email` |
+| `DeleteIAMUser` | DELETE | `/api/iam/users/:email` |
+| `ListIAMUsers` | GET | `/api/iam/users` |
+| `CreateIAMAPIKey` | POST | `/api/iam/api-keys` |
+| `ListIAMAPIKeys` | GET | `/api/iam/api-keys` |
+| `DeleteIAMAPIKey` | DELETE | `/api/iam/api-keys/:id` |
+| `GetIAMServiceDiscovery` | GET | `/api/iam/service-discovery` |
+
+---
+
+## Local development
+
+```bash
+# Build and point dev_overrides at the project root
+make build
+
+# ~/.terraformrc
+provider_installation {
+  dev_overrides {
+    "theopentag/theopentag" = "/path/to/opentag-cloud/terraform"
+  }
+  direct {}
+}
+
+# Terragrunt: skip auto-init (dev_overrides bypass registry, init is not needed)
+export TERRAGRUNT_NO_AUTO_INIT=true
+terragrunt plan
+```
+
+`dev_overrides` bypasses registry lookup during plan/apply. `terraform init` still hits the registry — always skip it with `TERRAGRUNT_NO_AUTO_INIT=true` or `--terragrunt-no-auto-init` when working locally.
+
+---
+
+## Release process
+
+```bash
+git tag v0.x.y
+git push origin v0.x.y
+# GitHub Actions: .github/workflows/release.yml triggers automatically
+# GoReleaser builds 6 platform zips + SHA256SUMS + SHA256SUMS.sig
+# Terraform Registry indexes within ~30 min
+```
+
+Required GitHub secrets: `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`.
+The GPG public key must be registered at `registry.terraform.io` → namespace `theopentag` → GPG Keys.
+The fingerprint in the release sig must match the registered key ID exactly.
+
+Expected release assets (Terraform Registry requires all of these):
+```
+terraform-provider-theopentag_X.Y.Z_darwin_amd64.zip
+terraform-provider-theopentag_X.Y.Z_darwin_arm64.zip
+terraform-provider-theopentag_X.Y.Z_linux_amd64.zip
+terraform-provider-theopentag_X.Y.Z_linux_arm64.zip
+terraform-provider-theopentag_X.Y.Z_windows_amd64.zip
+terraform-provider-theopentag_X.Y.Z_windows_arm64.zip
+terraform-provider-theopentag_X.Y.Z_SHA256SUMS
+terraform-provider-theopentag_X.Y.Z_SHA256SUMS.sig
+```
+
+Binary inside each zip must be named `terraform-provider-theopentag_vX.Y.Z` (with `v` prefix).
+
+---
+
+## Known bugs fixed (do not reintroduce)
+
+| Bug | Root cause | Fix location |
+|---|---|---|
+| `name` missing from PUT body | `json:"name,omitempty"` + caller not setting Name | `client.go UpdateServerConfig`: always set `req.Name = name` |
+| `schedule_enabled` null after update | `UseStateForUnknown()` on write-only field; state was null, plan had `true` | `resource_server_config.go Update()`: use plan value when known |
+| `next_run_at` inconsistency after schedule update | `UseStateForUnknown()` on a server-recomputed field | `resource_schedule.go`: no `PlanModifiers` on `next_run_at` |
+
+---
+
+## Invariants — never violate
+
+- TypeName pattern: `theopentag_<module>_<type>` — exactly two underscores minimum
+- `register.go` is the only file touched when wiring a new resource/datasource into a module
+- `provider.go` is the only file touched when wiring a new module into the provider
+- All imports: `github.com/theopentag/terraform-provider-theopentag/internal/...`
+- No real secrets in any file — placeholders only (`bmk_...`, `password=secret`)
+- `var version string` must exist in `main.go` (ldflags target)
+- Do not create per-module HTTP clients — one `*client.Client` for everything
