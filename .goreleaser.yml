@@ -58,7 +58,3 @@ release:
 
 changelog:
   disable: true
-
-terraforms:
-  - border_group: theopentag
-    name: theopentag
