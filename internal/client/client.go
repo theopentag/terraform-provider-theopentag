@@ -10,7 +10,32 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
+
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
+
+// FlexBool accepts both JSON booleans and 0/1 integers from the API.
+// It always marshals back as a proper JSON boolean.
+type FlexBool bool
+
+func (b *FlexBool) UnmarshalJSON(data []byte) error {
+	var n float64
+	if err := json.Unmarshal(data, &n); err == nil {
+		*b = FlexBool(n != 0)
+		return nil
+	}
+	var v bool
+	if err := json.Unmarshal(data, &v); err == nil {
+		*b = FlexBool(v)
+		return nil
+	}
+	return fmt.Errorf("cannot unmarshal %q into bool", data)
+}
+
+func (b FlexBool) MarshalJSON() ([]byte, error) {
+	return json.Marshal(bool(b))
+}
 
 type Client struct {
 	baseURL    string
@@ -27,6 +52,7 @@ func New(baseURL, apiKey string, insecureSkipVerify bool) *Client {
 		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Transport: transport,
+			Timeout:   10 * time.Second,
 		},
 	}
 }
@@ -36,45 +62,77 @@ type apiError struct {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body interface{}) ([]byte, int, error) {
-	var bodyReader io.Reader
+	var bodyBytes []byte
 	if body != nil {
-		b, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, 0, fmt.Errorf("marshal request body: %w", err)
 		}
-		bodyReader = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
-	if err != nil {
-		return nil, 0, fmt.Errorf("create request: %w", err)
-	}
+	const maxAttempts = 4 // 1 initial + 3 retries
+	var lastErr error
 
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, fmt.Errorf("read response body: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		var apiErr apiError
-		if jsonErr := json.Unmarshal(respBody, &apiErr); jsonErr == nil && apiErr.Detail != nil {
-			return nil, resp.StatusCode, fmt.Errorf("API error %d: %v", resp.StatusCode, apiErr.Detail)
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		var bodyReader io.Reader
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
 		}
-		return nil, resp.StatusCode, fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
+		if err != nil {
+			return nil, 0, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			// Don't retry if the caller cancelled the operation.
+			if ctx.Err() != nil {
+				return nil, 0, fmt.Errorf("request cancelled: %w", ctx.Err())
+			}
+			lastErr = err
+			tflog.Error(ctx, "platform host unavailable", map[string]any{
+				"url":     c.baseURL + path,
+				"attempt": attempt + 1,
+				"error":   err.Error(),
+			})
+			continue
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, resp.StatusCode, fmt.Errorf("read response body: %w", err)
+		}
+
+		// Retry on 5xx — server-side transient errors.
+		if resp.StatusCode >= 500 {
+			lastErr = fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+			tflog.Error(ctx, "platform returned server error", map[string]any{
+				"url":         c.baseURL + path,
+				"attempt":     attempt + 1,
+				"status_code": resp.StatusCode,
+			})
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
+			var apiErr apiError
+			if jsonErr := json.Unmarshal(respBody, &apiErr); jsonErr == nil && apiErr.Detail != nil {
+				return nil, resp.StatusCode, fmt.Errorf("API error %d: %v", resp.StatusCode, apiErr.Detail)
+			}
+			return nil, resp.StatusCode, fmt.Errorf("API error %d: %s", resp.StatusCode, resp.Status)
+		}
+
+		return respBody, resp.StatusCode, nil
 	}
 
-	return respBody, resp.StatusCode, nil
+	return nil, 0, fmt.Errorf("platform host unavailable after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // ServerConfig represents a barman server configuration.
@@ -84,9 +142,9 @@ type ServerConfig struct {
 	Conninfo                   string  `json:"conninfo"`
 	SSHCommand                 *string `json:"ssh_command"`
 	BackupMethod               string  `json:"backup_method"`
-	Archiver                   bool    `json:"archiver"`
-	StreamingConninfo          *string `json:"streaming_conninfo"`
-	StreamingArchiver          bool    `json:"streaming_archiver"`
+	Archiver                   FlexBool `json:"archiver"`
+	StreamingConninfo          *string  `json:"streaming_conninfo"`
+	StreamingArchiver          FlexBool `json:"streaming_archiver"`
 	CreateSlot                 string  `json:"create_slot"`
 	SlotName                   *string `json:"slot_name"`
 	PathPrefix                 *string `json:"path_prefix"`
@@ -97,8 +155,8 @@ type ServerConfig struct {
 	Compression                *string `json:"compression"`
 	BackupCompression          *string `json:"backup_compression"`
 	StreamingArchiverBatchSize int64   `json:"streaming_archiver_batch_size"`
-	PGVersion                  int64   `json:"pg_version"`
-	BackupsEnabled             bool    `json:"backups_enabled"`
+	PGVersion                  int64    `json:"pg_version"`
+	BackupsEnabled             FlexBool `json:"backups_enabled"`
 }
 
 type ServerConfigCreateRequest struct {
@@ -170,7 +228,7 @@ type Schedule struct {
 	Label          *string        `json:"label"`
 	ScheduleType   string         `json:"schedule_type"`
 	ScheduleConfig ScheduleConfig `json:"schedule_config"`
-	Enabled        bool           `json:"enabled"`
+	Enabled        FlexBool       `json:"enabled"`
 	NextRunAt      *string        `json:"next_run_at"`
 	LastRunAt      *string        `json:"last_run_at"`
 	CreatedAt      string         `json:"created_at"`

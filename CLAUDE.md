@@ -309,6 +309,7 @@ Binary inside each zip must be named `terraform-provider-theopentag_vX.Y.Z` (wit
 | `name` missing from PUT body | `json:"name,omitempty"` + caller not setting Name | `client.go UpdateServerConfig`: always set `req.Name = name` |
 | `schedule_enabled` null after update | `UseStateForUnknown()` on write-only field; state was null, plan had `true` | `resource_server_config.go Update()`: use plan value when known |
 | `next_run_at` inconsistency after schedule update | `UseStateForUnknown()` on a server-recomputed field | `resource_schedule.go`: no `PlanModifiers` on `next_run_at` |
+| `decode schedule: cannot unmarshal number into bool` | `Schedule.Enabled` typed as `bool` but API returns `0`/`1` integers | `client.go`: change `Schedule.Enabled` to `FlexBool`; cast with `bool(s.Enabled)` in `resource_schedule.go` |
 
 ---
 

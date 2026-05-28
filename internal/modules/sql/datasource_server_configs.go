@@ -177,9 +177,9 @@ func (d *serverConfigsDataSource) Read(ctx context.Context, req datasource.ReadR
 			"conninfo":                     types.StringValue(sc.Conninfo),
 			"ssh_command":                  m.SSHCommand,
 			"backup_method":                types.StringValue(sc.BackupMethod),
-			"archiver":                     types.BoolValue(sc.Archiver),
+			"archiver":                     types.BoolValue(bool(sc.Archiver)),
 			"streaming_conninfo":           m.StreamingConninfo,
-			"streaming_archiver":           types.BoolValue(sc.StreamingArchiver),
+			"streaming_archiver":           types.BoolValue(bool(sc.StreamingArchiver)),
 			"create_slot":                  types.StringValue(sc.CreateSlot),
 			"slot_name":                    m.SlotName,
 			"path_prefix":                  m.PathPrefix,
@@ -191,7 +191,7 @@ func (d *serverConfigsDataSource) Read(ctx context.Context, req datasource.ReadR
 			"backup_compression":           m.BackupCompression,
 			"streaming_archiver_batch_size": types.Int64Value(sc.StreamingArchiverBatchSize),
 			"pg_version":                   types.Int64Value(sc.PGVersion),
-			"backups_enabled":              types.BoolValue(sc.BackupsEnabled),
+			"backups_enabled":              types.BoolValue(bool(sc.BackupsEnabled)),
 		})
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {

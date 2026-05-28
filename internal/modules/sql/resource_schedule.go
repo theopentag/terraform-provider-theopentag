@@ -315,7 +315,7 @@ func scheduleToModel(ctx context.Context, s *client.Schedule) (scheduleModel, di
 		ID:           types.StringValue(strconv.FormatInt(s.ID, 10)),
 		ServerName:   types.StringValue(s.ServerName),
 		ScheduleType: types.StringValue(s.ScheduleType),
-		Enabled:      types.BoolValue(s.Enabled),
+		Enabled:      types.BoolValue(bool(s.Enabled)),
 		CreatedAt:    types.StringValue(s.CreatedAt),
 	}
 

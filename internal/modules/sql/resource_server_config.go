@@ -310,7 +310,7 @@ func (r *serverConfigResource) Update(ctx context.Context, req resource.UpdateRe
 			resp.Diagnostics.AddError("Error setting backups_enabled", err.Error())
 			return
 		}
-		sc.BackupsEnabled = plan.BackupsEnabled.ValueBool()
+		sc.BackupsEnabled = client.FlexBool(plan.BackupsEnabled.ValueBool())
 	}
 
 	newState := serverConfigToModel(sc)
@@ -336,17 +336,17 @@ func (r *serverConfigResource) Delete(ctx context.Context, req resource.DeleteRe
 
 func modelToServerConfig(m serverConfigModel) client.ServerConfig {
 	sc := client.ServerConfig{
-		Conninfo:           m.Conninfo.ValueString(),
-		BackupMethod:       m.BackupMethod.ValueString(),
-		Archiver:           m.Archiver.ValueBool(),
-		StreamingArchiver:  m.StreamingArchiver.ValueBool(),
-		CreateSlot:         m.CreateSlot.ValueString(),
-		SSLMode:            m.SSLMode.ValueString(),
-		WALRetentionPolicy: m.WALRetentionPolicy.ValueString(),
-		MinimumRedundancy:  m.MinimumRedundancy.ValueInt64(),
+		Conninfo:                   m.Conninfo.ValueString(),
+		BackupMethod:               m.BackupMethod.ValueString(),
+		Archiver:                   client.FlexBool(m.Archiver.ValueBool()),
+		StreamingArchiver:          client.FlexBool(m.StreamingArchiver.ValueBool()),
+		CreateSlot:                 m.CreateSlot.ValueString(),
+		SSLMode:                    m.SSLMode.ValueString(),
+		WALRetentionPolicy:         m.WALRetentionPolicy.ValueString(),
+		MinimumRedundancy:          m.MinimumRedundancy.ValueInt64(),
 		StreamingArchiverBatchSize: m.StreamingArchiverBatchSize.ValueInt64(),
-		PGVersion:          m.PGVersion.ValueInt64(),
-		BackupsEnabled:     m.BackupsEnabled.ValueBool(),
+		PGVersion:                  m.PGVersion.ValueInt64(),
+		BackupsEnabled:             client.FlexBool(m.BackupsEnabled.ValueBool()),
 	}
 
 	if !m.Description.IsNull() && !m.Description.IsUnknown() {
@@ -390,15 +390,15 @@ func serverConfigToModel(sc *client.ServerConfig) serverConfigModel {
 		Name:                       types.StringValue(sc.Name),
 		Conninfo:                   types.StringValue(sc.Conninfo),
 		BackupMethod:               types.StringValue(sc.BackupMethod),
-		Archiver:                   types.BoolValue(sc.Archiver),
-		StreamingArchiver:          types.BoolValue(sc.StreamingArchiver),
+		Archiver:                   types.BoolValue(bool(sc.Archiver)),
+		StreamingArchiver:          types.BoolValue(bool(sc.StreamingArchiver)),
 		CreateSlot:                 types.StringValue(sc.CreateSlot),
 		SSLMode:                    types.StringValue(sc.SSLMode),
 		WALRetentionPolicy:         types.StringValue(sc.WALRetentionPolicy),
 		MinimumRedundancy:          types.Int64Value(sc.MinimumRedundancy),
 		StreamingArchiverBatchSize: types.Int64Value(sc.StreamingArchiverBatchSize),
 		PGVersion:                  types.Int64Value(sc.PGVersion),
-		BackupsEnabled:             types.BoolValue(sc.BackupsEnabled),
+		BackupsEnabled:             types.BoolValue(bool(sc.BackupsEnabled)),
 	}
 
 	if sc.Description != nil {
