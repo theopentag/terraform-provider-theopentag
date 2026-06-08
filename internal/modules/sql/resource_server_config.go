@@ -44,6 +44,7 @@ type serverConfigModel struct {
 	PGVersion                  types.Int64  `tfsdk:"pg_version"`
 	BackupsEnabled             types.Bool   `tfsdk:"backups_enabled"`
 	ScheduleEnabled            types.Bool   `tfsdk:"schedule_enabled"`
+	BandwidthLimit             types.Int64  `tfsdk:"bandwidth_limit"`
 }
 
 func NewServerConfigResource() resource.Resource {
@@ -221,6 +222,14 @@ func (r *serverConfigResource) Schema(_ context.Context, _ resource.SchemaReques
 					boolplanmodifier.UseStateForUnknown(),
 				},
 			},
+			"bandwidth_limit": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Maximum backup transfer rate in kilobytes per second. 0 means no limit.",
+				PlanModifiers: []planmodifier.Int64{
+					int64planmodifier.UseStateForUnknown(),
+				},
+			},
 		},
 	}
 }
@@ -262,6 +271,10 @@ func (r *serverConfigResource) Create(ctx context.Context, req resource.CreateRe
 	}
 
 	state := serverConfigToModel(sc)
+	// API strips passwords from conninfo fields; use plan values to avoid
+	// "inconsistent result after apply" on sensitive attributes.
+	state.Conninfo = plan.Conninfo
+	state.StreamingConninfo = plan.StreamingConninfo
 	state.ScheduleEnabled = types.BoolValue(schedEnabled)
 	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 }
@@ -284,6 +297,9 @@ func (r *serverConfigResource) Read(ctx context.Context, req resource.ReadReques
 	}
 
 	newState := serverConfigToModel(sc)
+	// API strips passwords from conninfo fields; carry them over from prior state.
+	newState.Conninfo = state.Conninfo
+	newState.StreamingConninfo = state.StreamingConninfo
 	newState.ScheduleEnabled = state.ScheduleEnabled
 	resp.Diagnostics.Append(resp.State.Set(ctx, newState)...)
 }
@@ -314,6 +330,10 @@ func (r *serverConfigResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	newState := serverConfigToModel(sc)
+	// API strips passwords from conninfo fields; use plan values to avoid
+	// "inconsistent result after apply" on sensitive attributes.
+	newState.Conninfo = plan.Conninfo
+	newState.StreamingConninfo = plan.StreamingConninfo
 	if !plan.ScheduleEnabled.IsUnknown() {
 		newState.ScheduleEnabled = plan.ScheduleEnabled
 	} else {
@@ -347,6 +367,7 @@ func modelToServerConfig(m serverConfigModel) client.ServerConfig {
 		StreamingArchiverBatchSize: m.StreamingArchiverBatchSize.ValueInt64(),
 		PGVersion:                  m.PGVersion.ValueInt64(),
 		BackupsEnabled:             client.FlexBool(m.BackupsEnabled.ValueBool()),
+		BandwidthLimit:             m.BandwidthLimit.ValueInt64(),
 	}
 
 	if !m.Description.IsNull() && !m.Description.IsUnknown() {
@@ -399,6 +420,7 @@ func serverConfigToModel(sc *client.ServerConfig) serverConfigModel {
 		StreamingArchiverBatchSize: types.Int64Value(sc.StreamingArchiverBatchSize),
 		PGVersion:                  types.Int64Value(sc.PGVersion),
 		BackupsEnabled:             types.BoolValue(bool(sc.BackupsEnabled)),
+		BandwidthLimit:             types.Int64Value(sc.BandwidthLimit),
 	}
 
 	if sc.Description != nil {

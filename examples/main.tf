@@ -74,6 +74,7 @@ resource "theopentag_sql_server_config" "primary" {
 
   backups_enabled  = true
   schedule_enabled = true
+  # bandwidth_limit = 0  # KB/s; 0 = unlimited
 }
 
 resource "theopentag_sql_schedule" "nightly" {

@@ -310,6 +310,7 @@ Binary inside each zip must be named `terraform-provider-theopentag_vX.Y.Z` (wit
 | `schedule_enabled` null after update | `UseStateForUnknown()` on write-only field; state was null, plan had `true` | `resource_server_config.go Update()`: use plan value when known |
 | `next_run_at` inconsistency after schedule update | `UseStateForUnknown()` on a server-recomputed field | `resource_schedule.go`: no `PlanModifiers` on `next_run_at` |
 | `decode schedule: cannot unmarshal number into bool` | `Schedule.Enabled` typed as `bool` but API returns `0`/`1` integers | `client.go`: change `Schedule.Enabled` to `FlexBool`; cast with `bool(s.Enabled)` in `resource_schedule.go` |
+| `.conninfo: inconsistent values for sensitive attribute` | API's `strip_config_passwords()` removes `password=…` from conninfo in every response (Create/Update/Get); provider wrote the stripped string to state while plan had the full password | `resource_server_config.go`: in Create/Update use `plan.Conninfo`/`plan.StreamingConninfo`; in Read carry over `state.Conninfo`/`state.StreamingConninfo` |
 
 ---
 

@@ -56,6 +56,7 @@ resource "theopentag_sql_server_config" "primary" {
 - `pg_version` (Number) — PostgreSQL major version (14–18). Determines which worker processes this server. Default: `17`.
 - `backups_enabled` (Boolean) — Enable or disable backup execution for this server. Default: `true`.
 - `schedule_enabled` (Boolean) — Whether the auto-created daily schedule starts enabled. Consumed only on create; not tracked after. Default: `true`.
+- `bandwidth_limit` (Number) — Maximum backup transfer rate in kilobytes per second. `0` means no limit. Default: `0`.
 
 ## Import
 

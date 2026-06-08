@@ -154,9 +154,10 @@ type ServerConfig struct {
 	MinimumRedundancy          int64   `json:"minimum_redundancy"`
 	Compression                *string `json:"compression"`
 	BackupCompression          *string `json:"backup_compression"`
-	StreamingArchiverBatchSize int64   `json:"streaming_archiver_batch_size"`
+	StreamingArchiverBatchSize int64    `json:"streaming_archiver_batch_size"`
 	PGVersion                  int64    `json:"pg_version"`
 	BackupsEnabled             FlexBool `json:"backups_enabled"`
+	BandwidthLimit             int64    `json:"bandwidth_limit"`
 }
 
 type ServerConfigCreateRequest struct {
